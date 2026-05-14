@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NeuroMesh</string>
+    <string name="loading_model">Loading Gemma 4 AI model…</string>
+    <string name="model_not_found">Model not found. Place gemma4_e2b_q4.tflite in app assets/</string>
+    <string name="status_monitoring">Monitoring</string>
+    <string name="status_analyzing">Analyzing…</string>
+    <string name="dismiss_alert">Dismiss Alert</string>
+    <string name="retry">Retry</string>
+    <string name="mesh_isolated">No mesh</string>
+    <string name="mesh_connected_count">%d device(s)</string>
+    <string name="mesh_scanning">Scanning for peers…</string>
+    <string name="crisis_fire">Fire Detected</string>
+    <string name="crisis_earthquake">Earthquake Detected</string>
+    <string name="crisis_flood">Flood Detected</string>
+    <string name="crisis_structural">Structural Collapse</string>
+    <string name="crisis_medical">Medical Emergency</string>
+    <string name="crisis_unknown">Crisis Detected</string>
+</resources>
