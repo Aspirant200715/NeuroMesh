@@ -1,10 +1,12 @@
 package com.neuromesh.crisis.domain.agent
 
 import com.neuromesh.crisis.data.model.CrisisAlert
+import com.neuromesh.crisis.data.model.SeverityLevel
 import com.neuromesh.crisis.data.model.SituationAssessment
 import com.neuromesh.crisis.infrastructure.ml.Gemma4ModelRunner
 import com.neuromesh.crisis.infrastructure.ml.OutputParser
 import com.neuromesh.crisis.infrastructure.ml.PromptBuilder
+import com.neuromesh.crisis.util.Constants
 import com.neuromesh.crisis.util.Logger
 import com.neuromesh.crisis.util.Result
 import kotlinx.coroutines.flow.Flow
@@ -37,9 +39,15 @@ class ActionAgent @Inject constructor(
                     val alert = outputParser.parseAlert(assessment.id, result.data)
                         ?: return Result.Error("Failed to parse alert output")
 
+                    // Floor the severity: if a crisis cleared the sensor gate
+                    // AND reached alert-level confidence, it cannot honestly be
+                    // labelled LOW. This removes the "Urgent ... Crisis / LOW"
+                    // contradiction the testers saw.
+                    val flooredSeverity = floorSeverity(assessment.severity, assessment.confidence)
+
                     val enrichedAlert = alert.copy(
                         crisisType = assessment.crisisType,
-                        severity = assessment.severity,
+                        severity = flooredSeverity,
                         isConsensusAlert = assessment.meshConsensus,
                         contributingDevices = assessment.consensusContributors.size.coerceAtLeast(1)
                     )
@@ -53,6 +61,15 @@ class ActionAgent @Inject constructor(
             Logger.e(TAG, "Action agent error", e)
             Result.Error("Action agent failed: ${e.message}")
         }
+    }
+
+    private fun floorSeverity(reported: SeverityLevel, confidence: Float): SeverityLevel {
+        val floor = when {
+            confidence >= 0.85f -> SeverityLevel.HIGH
+            confidence >= Constants.MIN_ALERT_CONFIDENCE -> SeverityLevel.MODERATE
+            else -> SeverityLevel.LOW
+        }
+        return if (reported.value >= floor.value) reported else floor
     }
 
     companion object {

@@ -137,6 +137,53 @@ class CameraSensorManager @Inject constructor(private val context: Context) {
         return description.toString().trim()
     }
 
+    fun readSignal(): CameraSignal {
+        val bitmap = latestBitmap ?: return CameraSignal(
+            available = false,
+            fireColorRatio = 0f, floodColorRatio = 0f, smokeRatio = 0f,
+            brightRatio = 0f, darkRatio = 0f
+        )
+        val width = bitmap.width
+        val height = bitmap.height
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        var fire = 0
+        var flood = 0
+        var smoke = 0
+        var bright = 0
+        var dark = 0
+
+        for (pixel in pixels) {
+            val r = (pixel shr 16) and 0xFF
+            val g = (pixel shr 8) and 0xFF
+            val b = pixel and 0xFF
+            val brightness = (r + g + b) / 3
+
+            // Fire: strongly red/orange-dominant AND reasonably bright.
+            if (r > 130 && r > g + 40 && r > b + 60 && brightness > 70) fire++
+            // Flood/water: strongly blue-dominant.
+            if (b > 120 && b > r + 35 && b > g + 20) flood++
+            // Smoke/dust: low-saturation grey/amber, mid brightness.
+            val maxC = maxOf(r, g, b)
+            val minC = minOf(r, g, b)
+            if ((maxC - minC) < 35 && brightness in 60..190) smoke++
+
+            if (brightness > 200) bright++
+            if (brightness < 50) dark++
+        }
+
+        val total = pixels.size.toFloat()
+        return CameraSignal(
+            available = true,
+            fireColorRatio = fire / total,
+            floodColorRatio = flood / total,
+            smokeRatio = smoke / total,
+            brightRatio = bright / total,
+            darkRatio = dark / total
+        )
+    }
+
     private fun scaleBitmap(bitmap: Bitmap, maxSize: Int): Bitmap {
         val ratio = minOf(maxSize.toFloat() / bitmap.width, maxSize.toFloat() / bitmap.height)
         if (ratio >= 1f) return bitmap

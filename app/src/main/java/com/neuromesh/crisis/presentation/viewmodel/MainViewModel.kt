@@ -14,7 +14,9 @@ import com.neuromesh.crisis.domain.usecase.ShareObservationUseCase
 import com.neuromesh.crisis.infrastructure.ml.Gemma4ModelRunner
 import com.neuromesh.crisis.infrastructure.network.MeshNetworkManager
 import com.neuromesh.crisis.infrastructure.network.MessageSerializer
+import com.neuromesh.crisis.infrastructure.sensor.EnvironmentalSensorManager
 import com.neuromesh.crisis.util.Constants
+import com.neuromesh.crisis.util.DeviceCapability
 import com.neuromesh.crisis.util.Logger
 import com.neuromesh.crisis.util.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -32,7 +34,9 @@ class MainViewModel @Inject constructor(
     private val messageSerializer: MessageSerializer,
     private val consensusEngine: ConsensusEngine,
     private val meshRepository: MeshRepository,
-    private val observationRepository: ObservationRepository
+    private val observationRepository: ObservationRepository,
+    private val deviceCapability: DeviceCapability,
+    private val environmentalSensorManager: EnvironmentalSensorManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<UiState>(UiState.Initializing)
@@ -62,20 +66,38 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = UiState.Initializing
 
-            when (val result = modelRunner.initialize()) {
-                is Result.Success -> {
-                    Logger.d(TAG, "Model initialized successfully")
-                    _uiState.value = UiState.Ready
-                    startMesh()
-                    startDetectionLoop()
-                    collectMeshMessages()
-                    collectConsensusEvents()
+            val ramMb = deviceCapability.totalRamMb()
+            val canHostLlm = deviceCapability.canHostLlm()
+            Logger.i(TAG, "Device RAM: ${ramMb}MB, canHostLlm=$canHostLlm")
+
+            if (canHostLlm) {
+                // Attempt LLM init, but a failure (incl. OOM) must NOT brick the
+                // app — fall back to heuristic + mesh-only so it still works.
+                when (val result = modelRunner.initialize()) {
+                    is Result.Success -> Logger.d(TAG, "Model initialized successfully")
+                    is Result.Error -> Logger.w(
+                        TAG,
+                        "Model init failed (${result.message}); running heuristic-only mode"
+                    )
                 }
-                is Result.Error -> {
-                    Logger.e(TAG, "Model init failed: ${result.message}")
-                    _uiState.value = UiState.ModelNotFound
-                }
+            } else {
+                Logger.w(
+                    TAG,
+                    "Insufficient RAM for on-device LLM; running heuristic + mesh mode"
+                )
             }
+
+            // Either way the app is usable: heuristic detection always works and
+            // the device still participates in the mesh consensus.
+            // Accelerometer must be listening for the seismic gate/heuristic to
+            // ever fire (it was previously never started — earthquake detection
+            // silently never worked).
+            environmentalSensorManager.startListening()
+            _uiState.value = UiState.Ready
+            startMesh()
+            startDetectionLoop()
+            collectMeshMessages()
+            collectConsensusEvents()
         }
     }
 
@@ -99,10 +121,12 @@ class MainViewModel @Inject constructor(
                 val assessment = result.data
                 _latestAssessment.value = assessment
 
-                if (assessment.confidence >= Constants.MIN_ALERT_CONFIDENCE) {
+                if (assessment.confidence >= Constants.MIN_ALERT_CONFIDENCE &&
+                    assessment.crisisType != CrisisType.UNKNOWN
+                ) {
                     Logger.i(TAG, "Crisis detected: ${assessment.crisisType} (${assessment.confidence})")
 
-                    shareObservationUseCase.shareAssessment(assessment, viewModelScope)
+                    shareObservationUseCase.shareAssessment(assessment)
 
                     when (val alertResult = generateAlertUseCase(assessment)) {
                         is Result.Success -> {
@@ -118,6 +142,8 @@ class MainViewModel @Inject constructor(
                 }
             }
             is Result.Error -> {
+                // NO_SIGNAL is the normal idle case (sensor gate not crossed):
+                // stay quietly in Monitoring, never surface it as an error.
                 _uiState.value = UiState.Monitoring
             }
         }
@@ -193,6 +219,7 @@ class MainViewModel @Inject constructor(
         super.onCleared()
         detectionJob?.cancel()
         meshJob?.cancel()
+        environmentalSensorManager.stopListening()
         meshNetworkManager.stop()
         modelRunner.close()
     }

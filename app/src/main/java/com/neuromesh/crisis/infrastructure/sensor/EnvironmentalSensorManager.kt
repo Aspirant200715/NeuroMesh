@@ -109,6 +109,16 @@ class EnvironmentalSensorManager @Inject constructor(context: Context) {
         )
     }
 
+    fun readSignal(): EnvironmentalSignal {
+        val accelMag = getCurrentAccelerationMagnitude()
+        val peak = accelerometerHistory.maxOrNull() ?: accelMag
+        return EnvironmentalSignal(
+            accelMagnitude = accelMag,
+            accelPeak = peak,
+            isSeismic = peak > SEISMIC_THRESHOLD
+        )
+    }
+
     fun stopListening() {
         sensorManager.unregisterListener(accelListener)
     }

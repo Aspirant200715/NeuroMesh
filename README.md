@@ -21,6 +21,7 @@
 9. [Setup & Build](#9-setup--build)
 10. [Testing Guide](#10-testing-guide)
 11. [Demo Scenarios](#11-demo-scenarios)
+- [Detection Modes](#detection-modes)
 12. [Prize Track Alignment](#12-prize-track-alignment)
 13. [Known Limitations & Roadmap](#13-known-limitations--roadmap)
 14. [Glossary](#14-glossary)
@@ -193,8 +194,8 @@ We do **not** ship images, audio, or raw model outputs across the mesh — only 
 | Platform | Android 10+ (API 29+) | Covers ~95% of in-use Android devices |
 | Language | Kotlin 1.9 | Coroutines + Flow are essential for the async/multi-agent pipeline |
 | ML Runtime | Google AI Edge LiteRT via MediaPipe `tasks-genai` | Official supported path for running Gemma on-device |
-| Model | Gemma 4 E2B, 4-bit quantized (~1.3 GB) | Smallest Gemma 4 that still produces structured JSON reliably; fits in 4 GB RAM phones |
-| P2P | Android Nearby Connections API 2.0 (`P2P_CLUSTER` strategy) | Production-ready, handles both BLE + WiFi-Direct transparently |
+| Model | Gemma 4 E2B, 4-bit quantized (~1.3 GB) | Smallest Gemma 4 that still produces structured JSON reliably. Needs ~4 GB+ RAM to host on-device; phones below that fall back to a rule-based detector and still join the mesh (see [Detection Modes](#detection-modes)) |
+| P2P | Android Nearby Connections API 2.0 (`P2P_STAR` strategy) | Bluetooth-preferred; does not force Wi-Fi on. Works with Bluetooth alone, no internet/router |
 | Architecture | Clean Architecture + MVVM | Domain logic stays testable without Android |
 | DI | Hilt 2.51 | Standard for modern Android, plays nicely with ViewModel |
 | DB | Room 2.6 | Type-safe SQL, Flow integration |
@@ -294,7 +295,7 @@ We deliberately **do not** ship raw pixels/audio into Gemma. The E2B model is te
 
 ### 8.4 Mesh Networking (`infrastructure/network/`)
 
-- **`NearbyConnectionsWrapper`** is the only class that touches the Google Nearby SDK. Uses `Strategy.P2P_CLUSTER` (many-to-many). Handles advertising, discovery, auto-accept-on-discovery, payload send/receive. Exposes incoming bytes and connection events via Kotlin Flows so the rest of the app stays SDK-agnostic.
+- **`NearbyConnectionsWrapper`** is the only class that touches the Google Nearby SDK. Uses `Strategy.P2P_STAR` (a single shared `MESH_STRATEGY` constant so advertising and discovery can never diverge). STAR keeps Bluetooth as the primary transport and does **not** aggressively bring up Wi-Fi/Wi-Fi-Direct the way `P2P_CLUSTER` does — `P2P_CLUSTER` was forcing Wi-Fi on and causing Wi-Fi/Bluetooth radio contention that left devices unable to connect. STAR is sufficient for the ≤5-device mesh. Handles advertising, discovery, auto-accept-on-discovery, payload send/receive. Exposes incoming bytes and connection events via Kotlin Flows so the rest of the app stays SDK-agnostic.
 - **`MeshNetworkManager`** is the orchestrator. On `start()` it begins advertising + discovery, spins up coroutines for:
   - Incoming payload collection → deserialize → push onto `incomingMessages` SharedFlow.
   - Connection event collection → update `MeshRepository`.
@@ -324,7 +325,9 @@ We deliberately **do not** ship raw pixels/audio into Gemma. The E2B model is te
 - **Android Studio Hedgehog (2023.1.1) or newer**
 - **JDK 17** (set in Android Studio: Settings → Build → Gradle → Gradle JDK)
 - **Android SDK API 34** (install via SDK Manager)
-- **Physical Android device** — Android 10+ (API 29+), 4 GB+ RAM, ideally Snapdragon 6-series or better. **Emulators will not work** (no real camera, no real Bluetooth, no real accelerometer).
+- **Physical Android device** — Android 10+ (API 29+). **Emulators will not work** (no real camera, no real Bluetooth, no real accelerometer).
+  - **~4 GB+ RAM** to run the on-device Gemma model. ~6 GB+ recommended for headroom (the model is text-only inference on top of camera + mesh).
+  - **Lower-RAM phones still work**: below ~4 GB the app automatically runs in heuristic detection mode (rule-based fire/flood/earthquake detection) and still participates in the mesh — it does not crash. See [Detection Modes](#detection-modes).
 - **3 GB free storage on the device** (1.3 GB APK + 1.3 GB extracted model).
 
 ### 9.2 Get the Model
@@ -487,6 +490,27 @@ For the hackathon submission video, we want each of the four crisis types showca
 
 ---
 
+## Detection Modes
+
+NeuroMesh runs in one of two modes, chosen automatically at startup based on device RAM. **Both modes participate in the mesh** — the difference is only how a device produces its *own* local detection.
+
+| | LLM mode | Heuristic mode |
+|---|---|---|
+| **When** | Device has ~4 GB+ RAM and the model loads | Device below the RAM floor, or model init fails |
+| **Local detection** | Observer → Reasoner → Action agents on Gemma 4 | Rule-based classifier on raw sensor numbers (fire-colored-pixel ratio, alarm-band audio, accelerometer spike) |
+| **Guidance text** | LLM-generated, situation-specific | Templated risk hints per crisis type |
+| **Mesh consensus** | Full participant | Full participant |
+| **Never crashes** | ✓ (falls back to heuristic if the model fails) | ✓ |
+
+Two design rules make this robust:
+
+1. **Sensor gate first.** Every detection cycle starts by reading raw sensor numbers. If nothing crosses a real threshold, the cycle short-circuits and the (expensive) model is never invoked. This is what prevents false "random" alerts and stops the device running inference 100% of the time (the old behaviour that overheated phones).
+2. **Graceful RAM fallback.** A low-RAM phone, or a model-init OOM, drops to heuristic mode instead of force-closing. The phone stays useful: it detects the obvious crises locally and still trusts/relays mesh consensus from capable peers.
+
+Mesh transport is **Bluetooth-preferred** (`P2P_STAR`). It needs Bluetooth on; it does **not** require or force Wi-Fi, and it never needs the internet. It works in airplane mode with Bluetooth enabled.
+
+---
+
 ## 12. Prize Track Alignment
 
 ### Global Resilience ($10K)
@@ -504,7 +528,7 @@ Gemma 4 E2B running on-device via MediaPipe LiteRT, on mid-range hardware, doing
 
 ### Limitations as of the hackathon cut
 
-- **Model size**. 1.3 GB is uncomfortable for an APK. For production we'd download the model on first launch over a one-time WiFi connection rather than bundle it.
+- **Model size & RAM floor**. 1.3 GB is uncomfortable for an APK, and a 2B-parameter model realistically needs ~4 GB+ device RAM to host (mmap + KV-cache + activations on top of camera and mesh). This is a hard physical constraint, not a tuning issue — phones with ~2-3 GB RAM **cannot** run the LLM. We handle this gracefully: such phones auto-fall-back to heuristic mode and still mesh (see [Detection Modes](#detection-modes)), rather than crashing. For production we'd also download the model on first launch rather than bundle it.
 - **Text-only Gemma**. E2B is text-only — we feed it descriptions, not pixels. The full multimodal variant would improve observer reliability significantly.
 - **No persistent peer identity**. Device IDs are random per install; we don't yet have cryptographic peer identities, so a malicious node could in theory poison consensus. Mitigation: confidence weighting limits the impact of one bad actor.
 - **English prompts only**. Gemma 4 is multilingual; we just haven't translated our prompts yet.
@@ -533,7 +557,8 @@ Gemma 4 E2B running on-device via MediaPipe LiteRT, on mid-range hardware, doing
 - **MediaPipe** — Google's framework for on-device ML pipelines; we use its `tasks-genai` API for Gemma inference.
 - **Nearby Connections** — Android's official P2P API. Hides the BLE-vs-WiFi-Direct choice and gives us a simple advertise/discover/connect/send-payload API.
 - **Observation** (`Observation`) — The output of the Observer: structured features from camera + audio + sensors at a single point in time.
-- **P2P_CLUSTER** — Nearby Connections strategy that allows many-to-many connections (vs. P2P_POINT_TO_POINT or P2P_STAR).
+- **P2P_STAR** — The Nearby Connections strategy NeuroMesh uses. Bluetooth-preferred; does not force Wi-Fi on. (We deliberately moved off `P2P_CLUSTER`, which forced Wi-Fi/Wi-Fi-Direct up and caused radio contention.)
+- **Heuristic mode** — The rule-based detection path (color/audio/accelerometer thresholds, no LLM) used on phones that lack the RAM to host Gemma. Still feeds the mesh.
 - **Reasoning Trace** — A list of numbered reasoning steps with evidence and per-step confidence. Attached to every assessment so users can audit *why* an alert fired.
 - **TTL** (Time To Live) — A hop counter on mesh messages. Decremented on each relay; messages stop propagating at TTL=0.
 
