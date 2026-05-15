@@ -75,15 +75,21 @@ Output only valid JSON."""
 You are the Action Agent in the NeuroMesh crisis detection system.
 Your role: generate specific, actionable emergency guidance based on a crisis assessment.
 Prioritize life safety. Be clear and specific. Avoid panic.
-Output only valid JSON."""
+Rules:
+- Output only valid JSON, nothing before or after it.
+- Fill every field with REAL content for THIS crisis. Never repeat the field
+  name, the angle-bracket hint, or the word "Alert"/"Title" inside a value.
+- "title" is a plain headline, max 60 chars, with no "Title:" prefix.
+- Guidance must match the crisis type given in the assessment."""
 
-        const val OBSERVER_OUTPUT_SCHEMA = """{
+        const val OBSERVER_OUTPUT_SCHEMA = """Pick crisisType=UNKNOWN with confidence 0.0 unless the sensor data clearly indicates a crisis. Do not invent a crisis.
+{
   "crisisType": "FIRE|EARTHQUAKE|FLOOD|STRUCTURAL_COLLAPSE|MEDICAL_EMERGENCY|UNKNOWN",
   "confidence": 0.0,
-  "indicators": ["list of observed indicators"],
+  "indicators": ["<observed indicator>"],
   "visualFeatures": {"smokeDetected": false, "flamesDetected": false, "floodWaterDetected": false, "structuralDamageDetected": false, "crowdPanic": false},
   "audioFeatures": {"alarmDetected": false, "screamingDetected": false, "explosionDetected": false},
-  "reasoning": "brief explanation"
+  "reasoning": "<brief explanation>"
 }<end_of_turn>
 <start_of_turn>model"""
 
@@ -91,23 +97,23 @@ Output only valid JSON."""
   "crisisType": "FIRE|EARTHQUAKE|FLOOD|STRUCTURAL_COLLAPSE|MEDICAL_EMERGENCY|UNKNOWN",
   "severity": "LOW|MODERATE|HIGH|CRITICAL|CATASTROPHIC",
   "confidence": 0.0,
-  "affectedArea": "description",
+  "affectedArea": "<short description>",
   "estimatedAffected": 0,
-  "immediateRisks": ["risk1", "risk2"],
+  "immediateRisks": ["<risk>"],
   "steps": [
-    {"stepNumber": 1, "description": "...", "evidence": "...", "confidence": 0.0}
+    {"stepNumber": 1, "description": "<reasoning step>", "evidence": "<evidence>", "confidence": 0.0}
   ],
-  "conclusion": "summary"
+  "conclusion": "<summary>"
 }<end_of_turn>
 <start_of_turn>model"""
 
         const val ACTION_OUTPUT_SCHEMA = """{
-  "title": "Alert title (max 60 chars)",
-  "summary": "1-2 sentence summary",
-  "immediateActions": ["action1", "action2", "action3"],
-  "evacuationRoutes": ["route1", "route2"],
-  "doNotDo": ["don't do this1", "don't do this2"],
-  "guidanceText": "paragraph of detailed guidance",
+  "title": "<short headline, no prefix, <=60 chars>",
+  "summary": "<1-2 sentences describing the situation>",
+  "immediateActions": ["<first action>", "<second action>", "<third action>"],
+  "evacuationRoutes": ["<route or direction>"],
+  "doNotDo": ["<thing to avoid>"],
+  "guidanceText": "<one short paragraph of guidance>",
   "contacts": [{"name": "Emergency Services", "number": "911"}]
 }<end_of_turn>
 <start_of_turn>model"""

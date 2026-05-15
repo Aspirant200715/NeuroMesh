@@ -89,7 +89,10 @@ class Gemma4ModelRunner @Inject constructor(
         private const val TAG = "Gemma4ModelRunner"
         private const val MAX_TOKENS = 1024
         private const val TOP_K = 40
-        private const val TEMPERATURE = 0.7f
+        // Low temperature: we want reliable, schema-conformant JSON, not
+        // creative variation. 0.7 was a major source of hallucinated crises
+        // and malformed output.
+        private const val TEMPERATURE = 0.2f
         private const val RANDOM_SEED = 42
     }
 }

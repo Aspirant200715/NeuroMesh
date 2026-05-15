@@ -77,7 +77,7 @@ class NearbyConnectionsWrapper @Inject constructor(private val context: Context)
 
     fun startAdvertising(deviceName: String, serviceId: String) {
         val options = AdvertisingOptions.Builder()
-            .setStrategy(Strategy.P2P_CLUSTER)
+            .setStrategy(MESH_STRATEGY)
             .build()
 
         connectionsClient.startAdvertising(deviceName, serviceId, connectionLifecycleCallback, options)
@@ -87,7 +87,7 @@ class NearbyConnectionsWrapper @Inject constructor(private val context: Context)
 
     fun startDiscovery(serviceId: String) {
         val options = DiscoveryOptions.Builder()
-            .setStrategy(Strategy.P2P_CLUSTER)
+            .setStrategy(MESH_STRATEGY)
             .build()
 
         connectionsClient.startDiscovery(serviceId, object : EndpointDiscoveryCallback() {
@@ -144,6 +144,15 @@ class NearbyConnectionsWrapper @Inject constructor(private val context: Context)
 
     companion object {
         private const val TAG = "NearbyConnectionsWrapper"
+
+        // P2P_STAR keeps Bluetooth as the primary transport and does NOT
+        // aggressively bring up Wi-Fi/Wi-Fi-Direct the way P2P_CLUSTER does.
+        // P2P_CLUSTER was forcing Wi-Fi on (and the Wi-Fi/BT radio contention
+        // that left devices unable to connect). STAR is sufficient for the
+        // small (<=5 device) mesh and matches the "works without Wi-Fi" goal.
+        // Advertising and discovery MUST use the same strategy or peers never
+        // connect — hence a single shared constant.
+        val MESH_STRATEGY: Strategy = Strategy.P2P_STAR
     }
 }
 

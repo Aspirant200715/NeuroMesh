@@ -56,6 +56,52 @@ class AudioSensorManager @Inject constructor() {
         }
     }
 
+    suspend fun readSignal(): AudioSignal = withContext(Dispatchers.IO) {
+        try {
+            val bufferSize = AudioRecord.getMinBufferSize(
+                SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            ).coerceAtLeast(DEFAULT_BUFFER_SIZE)
+
+            val recorder = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize
+            )
+            if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+                return@withContext AudioSignal(false, 0f, 0f, 0)
+            }
+            val buffer = ShortArray(bufferSize / 2)
+            recorder.startRecording()
+            recorder.read(buffer, 0, buffer.size)
+            recorder.stop()
+            recorder.release()
+            computeSignal(buffer)
+        } catch (e: SecurityException) {
+            Logger.w(TAG, "Audio permission denied")
+            AudioSignal(false, 0f, 0f, 0)
+        } catch (e: Exception) {
+            Logger.e(TAG, "Audio signal read failed", e)
+            AudioSignal(false, 0f, 0f, 0)
+        }
+    }
+
+    private fun computeSignal(samples: ShortArray): AudioSignal {
+        if (samples.isEmpty()) return AudioSignal(true, 0f, 0f, 0)
+        val rms = sqrt(samples.map { it.toLong() * it }.average()).toFloat()
+        val dbSpl = if (rms > 0) 20 * log10(rms / Short.MAX_VALUE.toFloat()) + 90f else 0f
+        var zeroCrossings = 0
+        for (i in 1 until samples.size) {
+            if ((samples[i] >= 0) != (samples[i - 1] >= 0)) zeroCrossings++
+        }
+        val dominantFreq = (zeroCrossings.toFloat() / samples.size) * SAMPLE_RATE / 2
+        val peakAmplitude = samples.maxOfOrNull { abs(it.toInt()) } ?: 0
+        return AudioSignal(true, dbSpl, dominantFreq, peakAmplitude)
+    }
+
     private fun analyzeAudio(samples: ShortArray): String {
         if (samples.isEmpty()) return "No audio data"
 

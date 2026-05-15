@@ -125,22 +125,32 @@ class OutputParser @Inject constructor(private val json: Json) {
                 )
             } ?: listOf(EmergencyContact("Emergency Services", "911"))
 
+            val rawTitle = obj["title"]?.jsonPrimitive?.content
+            val sanitizedTitle = sanitize(rawTitle)
+            val cleanTitle = if (sanitizedTitle.isNullOrBlank() || isPlaceholder(sanitizedTitle)) {
+                "Crisis Alert"
+            } else {
+                sanitizedTitle.take(80)
+            }
+
             CrisisAlert(
                 id = generateId(),
                 assessmentId = assessmentId,
                 timestamp = System.currentTimeMillis(),
+                // crisisType/severity are authoritative from the assessment and
+                // are overwritten by ActionAgent; keep neutral defaults here.
                 crisisType = CrisisType.UNKNOWN,
-                severity = SeverityLevel.HIGH,
-                title = obj["title"]?.jsonPrimitive?.content ?: "Crisis Detected",
-                summary = obj["summary"]?.jsonPrimitive?.content ?: "",
-                immediateActions = obj["immediateActions"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
-                evacuationRoutes = obj["evacuationRoutes"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
-                doNotDo = obj["doNotDo"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
+                severity = SeverityLevel.MODERATE,
+                title = cleanTitle,
+                summary = sanitize(obj["summary"]?.jsonPrimitive?.content).orEmpty(),
+                immediateActions = cleanList(obj["immediateActions"]),
+                evacuationRoutes = cleanList(obj["evacuationRoutes"]),
+                doNotDo = cleanList(obj["doNotDo"]),
                 contactNumbers = contacts,
                 isConsensusAlert = false,
                 contributingDevices = 1,
                 expiresAt = System.currentTimeMillis() + ALERT_TTL_MS,
-                guidanceText = obj["guidanceText"]?.jsonPrimitive?.content ?: ""
+                guidanceText = sanitize(obj["guidanceText"]?.jsonPrimitive?.content).orEmpty()
             )
         } catch (e: Exception) {
             Logger.e(TAG, "Failed to parse alert: ${e.message}")
@@ -153,6 +163,48 @@ class OutputParser @Inject constructor(private val json: Json) {
         val end = text.lastIndexOf('}')
         if (start == -1 || end == -1 || end <= start) return null
         return text.substring(start, end + 1)
+    }
+
+    /**
+     * The small model frequently echoes the field's label or the schema
+     * placeholder into its own value, e.g. it emits
+     * `"title": "Alert Title: Fire spreading..."` because the schema comment
+     * said `"Alert title (max 60 chars)"`. Strip those leading labels so the
+     * UI shows "Fire spreading..." not "Alert Title: Fire spreading...".
+     */
+    private fun sanitize(value: String?): String? {
+        if (value == null) return null
+        var s = value.trim().trim('"').trim()
+        // Remove a leading "Label:" prefix when the label is one of the known
+        // field names the model tends to parrot.
+        val prefix = Regex(
+            "^(alert title|alert|title|summary|guidance(?: text)?|description)\\s*:\\s*",
+            RegexOption.IGNORE_CASE
+        )
+        var changed = true
+        while (changed) {
+            val stripped = s.replaceFirst(prefix, "")
+            changed = stripped != s
+            s = stripped.trim()
+        }
+        return s
+    }
+
+    private fun isPlaceholder(s: String): Boolean {
+        val lower = s.lowercase()
+        return lower.contains("max 60 chars") ||
+            lower.contains("1-2 sentence") ||
+            lower.startsWith("action1") ||
+            lower.startsWith("route1") ||
+            lower.startsWith("don't do this") ||
+            lower == "alert title" ||
+            lower == "paragraph of detailed guidance"
+    }
+
+    private fun cleanList(element: JsonElement?): List<String> {
+        val arr = element?.jsonArray ?: return emptyList()
+        return arr.mapNotNull { sanitize(it.jsonPrimitive.content) }
+            .filter { it.isNotBlank() && !isPlaceholder(it) }
     }
 
     private fun generateId(): String =

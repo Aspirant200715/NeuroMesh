@@ -24,6 +24,8 @@ A complete script for the hackathon submission video. Target length: **3 minutes
 - [ ] Royalty-free background music (use [pixabay.com/music](https://pixabay.com/music) — search "tense ambient" or "documentary")
 
 ### Pre-flight on the day
+- [ ] **Bluetooth ON, Location ON on all phones. Wi-Fi can be OFF** (the mesh is Bluetooth-preferred and does not need Wi-Fi)
+- [ ] All hero phones have ~4 GB+ RAM (so they run the full LLM, not heuristic mode)
 - [ ] All 3 phones launched into NeuroMesh, mesh indicator shows 2 connected peers (so we're confident it works before the camera rolls)
 - [ ] Verify model is loaded on all 3 — status pill should say "Monitoring"
 - [ ] Clear notifications, set Do Not Disturb on all phones (no SMS popping mid-demo)
@@ -67,7 +69,7 @@ Below: the spoken voice-over (VO) for each section, plus what's on screen. Time 
 ### 0:18 — 0:33  Our Solution
 **SCREEN:** Cut to teammate, piece-to-camera, NeuroMesh app open on a phone visible in the frame.
 **VO (on camera):**
-> We built NeuroMesh. It turns every Android phone in a disaster zone into a node in an AI swarm. Each phone runs three specialized agents on Gemma 4 — on-device, completely offline. The phones discover each other over Bluetooth and WiFi-Direct, share what they're observing, vote on what's happening, and produce trustworthy emergency guidance. No internet. No cloud. No central server. Just survivors helping survivors, with AI in the middle.
+> We built NeuroMesh. It turns every Android phone in a disaster zone into a node in an AI swarm. Each phone runs specialized agents on Gemma 4 — on-device, completely offline. The phones discover each other directly over Bluetooth, share what they're observing, vote on what's happening, and produce trustworthy emergency guidance. No internet. No cloud. No central server. No Wi-Fi or cell tower needed. Just survivors helping survivors, with AI in the middle.
 
 ### 0:33 — 0:53  Architecture
 **SCREEN:** The layered architecture diagram from the README. Highlight each layer as it's mentioned (animated reveal or just the static diagram with a moving spotlight).
@@ -133,7 +135,8 @@ Burn subtitles into the video. The Kaggle judges may watch on mute. Use a simple
 
 ## Common Demo Pitfalls (avoid these)
 
-- **Wifi disabled, Bluetooth disabled.** Nearby Connections needs both ON to find peers reliably. Toggle them on before recording.
+- **Bluetooth disabled.** The mesh is Bluetooth-preferred (`P2P_STAR`). Bluetooth MUST be ON on every phone. Wi-Fi is *not* required and the app no longer forces it on — leaving Wi-Fi off is fine (and matches the "no infrastructure" story for the airplane-mode shot). Location must be ON (Nearby/BLE scanning needs it on Android).
+- **Demo phones must have ~4 GB+ RAM.** Below that the phone runs in heuristic mode (no LLM-generated guidance text — just templated hints). For the headline shots use 4 GB+ (ideally 6 GB+) phones so the alerts show full reasoning traces. A low-RAM phone is fine as an *extra* mesh peer to pad the device count, but don't make it the hero phone.
 - **Phones too far apart.** Stay within 5 meters for the demo. Bluetooth's effective range with body interference is worse than the spec.
 - **Phones already paired to a hundred other Bluetooth things.** Reboot them before the shoot — fresh Bluetooth state pairs faster.
 - **Wrong filename for the model.** If the model is named anything other than exactly `gemma4_e2b_q4.tflite`, `ModelLoader` won't find it. Verify before shoot day.

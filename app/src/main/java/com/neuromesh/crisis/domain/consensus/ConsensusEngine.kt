@@ -30,7 +30,15 @@ class ConsensusEngine @Inject constructor(
             .filter { System.currentTimeMillis() - it.timestamp < CONSENSUS_WINDOW_MS }
             .toList()
 
-        if (recentAssessments.isEmpty()) return
+        // Consensus is only meaningful across MULTIPLE distinct devices. With a
+        // single device the local detection path already raised its own alert;
+        // emitting a "consensus" here too would double-alert and let one phone
+        // declare mesh consensus by itself.
+        val distinctDevices = recentAssessments.map { it.deviceId }.distinct().size
+        if (distinctDevices < VotingStrategy.MIN_DEVICES_FOR_CONSENSUS) {
+            _consensusEvents.emit(ConsensusEvent.InsufficientData(distinctDevices))
+            return
+        }
 
         val result = votingStrategy.computeConsensus(recentAssessments)
 
